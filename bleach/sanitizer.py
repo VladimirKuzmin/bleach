@@ -105,32 +105,33 @@ class BleachSanitizerMixin(HTMLSanitizerMixin):
         the whitelist.
 
         """
-        # disallow urls
+        return style
+        # # disallow urls
         # style = re.compile('url\s*\(\s*[^\s)]+?\s*\)\s*').sub(' ', style)
 
-        # gauntlet
-        # TODO: Make sure this does what it's meant to - I *think* it wants to
-        # validate style attribute contents.
-        parts = style.split(';')
-        gauntlet = re.compile("""^([-/:,#%.'"\sa-zA-Z0-9!]|\w-\w|'[\s\w]+'"""
-                              """\s*|"[\s\w]+"|\([\d,%\.\s]+\))*$""")
-        for part in parts:
-            if not gauntlet.match(part):
-                return ''
+        # # gauntlet
+        # # TODO: Make sure this does what it's meant to - I *think* it wants to
+        # # validate style attribute contents.
+        # parts = style.split(';')
+        # gauntlet = re.compile("""^([-/:,#%.'"\sa-zA-Z0-9!]|\w-\w|'[\s\w]+'"""
+        #                       """\s*|"[\s\w]+"|\([\d,%\.\s]+\))*$""")
+        # for part in parts:
+        #     if not gauntlet.match(part):
+        #         return ''
 
-        if not re.match("^\s*([-\w]+\s*:[^:;]*(;\s*|$))*$", style):
-            return ''
+        # if not re.match("^\s*([-\w]+\s*:[^:;]*(;\s*|$))*$", style):
+        #     return ''
 
-        clean = []
-        for prop, value in re.findall('([-\w]+)\s*:\s*([^:;]*)', style):
-            if not value:
-                continue
-            if prop.lower() in self.allowed_css_properties:
-                clean.append(prop + ': ' + value + ';')
-            elif prop.lower() in self.allowed_svg_properties:
-                clean.append(prop + ': ' + value + ';')
+        # clean = []
+        # for prop, value in re.findall('([-\w]+)\s*:\s*([^:;]*)', style):
+        #     if not value:
+        #         continue
+        #     if prop.lower() in self.allowed_css_properties:
+        #         clean.append(prop + ': ' + value + ';')
+        #     elif prop.lower() in self.allowed_svg_properties:
+        #         clean.append(prop + ': ' + value + ';')
 
-        return ' '.join(clean)
+        # return ' '.join(clean)
 
 
 class BleachSanitizer(HTMLTokenizer, BleachSanitizerMixin):
