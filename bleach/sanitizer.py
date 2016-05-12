@@ -106,7 +106,7 @@ class BleachSanitizerMixin(HTMLSanitizerMixin):
 
         """
         # disallow urls
-        style = re.compile('url\s*\(\s*[^\s)]+?\s*\)\s*').sub(' ', style)
+        # style = re.compile('url\s*\(\s*[^\s)]+?\s*\)\s*').sub(' ', style)
 
         # gauntlet
         # TODO: Make sure this does what it's meant to - I *think* it wants to
