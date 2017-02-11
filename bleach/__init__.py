@@ -11,14 +11,12 @@ from html5lib.serializer.htmlserializer import HTMLSerializer
 from . import callbacks as linkify_callbacks
 from .encoding import force_unicode
 from .sanitizer import BleachSanitizer
-
-
-VERSION = (1, 4, 2)
-__version__ = '.'.join([str(n) for n in VERSION])
+from .version import __version__, VERSION # flake8: noqa
 
 __all__ = ['clean', 'linkify']
 
-log = logging.getLogger('bleach')
+log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
 
 ALLOWED_TAGS = [
     'a',
@@ -67,7 +65,7 @@ PROTOCOLS = HTMLSanitizer.acceptable_protocols
 url_re = re.compile(
     r"""\(*  # Match any opening parentheses.
     \b(?<![@.])(?:(?:{0}):/{{0,3}}(?:(?:\w+:)?\w+@)?)?  # http://
-    ([\w-]+\.)+(?:{1})(?:\:\d+)?(?!\.\w)\b   # xx.yy.tld(:##)?
+    ([\w-]+\.)+(?:{1})(?:\:[0-9]+)?(?!\.\w)\b   # xx.yy.tld(:##)?
     (?:[/?][^\s\{{\}}\|\\\^\[\]`<>"]*)?
         # /path/zz (excluding "unsafe" chars from RFC 1738,
         # except for # and ~, which happen in practice)
@@ -84,7 +82,7 @@ email_re = re.compile(
         (\.[-!#$%&'*+/=?^_`{1!s}|~0-9A-Z]+)*  # dot-atom
     |^"([\001-\010\013\014\016-\037!#-\[\]-\177]
         |\\[\001-011\013\014\016-\177])*"  # quoted-string
-    )@(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6})\.?  # domain
+    )@(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6})  # domain
     """,
     re.IGNORECASE | re.MULTILINE | re.VERBOSE)
 
@@ -100,7 +98,14 @@ DEFAULT_CALLBACKS = [linkify_callbacks.nofollow]
 def clean(text, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRIBUTES,
           styles=ALLOWED_STYLES, protocols=ALLOWED_PROTOCOLS, strip=False,
           strip_comments=True):
-    """Clean an HTML fragment and return it
+    """Clean an HTML fragment of malicious content and return it
+
+    This function is a security-focused function whose sole purpose is to
+    remove malicious content from a string such that it can be displayed as
+    content in a web page.
+
+    This function is not designed to use to transform content to be used in
+    non-web-page contexts.
 
     :arg text: the text to clean
     :arg tags: whitelist of allowed tags; defaults to
@@ -135,12 +140,18 @@ def clean(text, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRIBUTES,
 
 def linkify(text, callbacks=DEFAULT_CALLBACKS, skip_pre=False,
             parse_email=False, tokenizer=HTMLSanitizer):
-    """Convert URL-like strings in an HTML fragment to links.
+    """Convert URL-like strings in an HTML fragment to links
 
-    linkify() converts strings that look like URLs or domain names in a
-    blob of text that may be an HTML fragment to links, while preserving
-    (a) links already in the string, (b) urls found in attributes, and
-    (c) email addresses.
+    ``linkify()`` converts strings that look like URLs, domain names and email
+    addresses in text that may be an HTML fragment to links, while preserving:
+
+    1. links already in the string
+    2. urls found in attributes
+    3. email addresses
+
+    ``linkify()`` does a best-effort approach and tries to recover from bad
+    situations due to crazy text.
+
     """
     text = force_unicode(text)
 
@@ -153,30 +164,44 @@ def linkify(text, callbacks=DEFAULT_CALLBACKS, skip_pre=False,
     _seen = set([])
 
     def replace_nodes(tree, new_frag, node, index=0):
-        """
-        Doesn't really replace nodes, but inserts the nodes contained in
-        new_frag into the treee at position index and returns the number
+        """Doesn't really replace nodes, but inserts the nodes contained in
+        ``new_frag`` into ``tree`` at position ``index`` and returns the number
         of nodes inserted.
-        If node is passed in, it is removed from the tree
+
+        If ``node`` is passed in, it is removed from the resulting tree.
+
+        :arg tree: tree
+        :arg new_frag: fragment of html text to insert
+        :arg node: the node to "replace"
+        :arg index: the index position to focus on
+
+        :returns: number of nodes inserted so that you can skip ahead
+
         """
         count = 0
         new_tree = parser.parseFragment(new_frag)
         # capture any non-tag text at the start of the fragment
         if new_tree.text:
             if index == 0:
-                tree.text = tree.text or ''
-                tree.text += new_tree.text
+                tree.text = (tree.text or '') + new_tree.text
             else:
-                tree[index - 1].tail = tree[index - 1].tail or ''
-                tree[index - 1].tail += new_tree.text
-        # the put in the tagged elements into the old tree
+                tree[index-1].tail = (tree[index-1].tail or '') + new_tree.text
+
+        # then put in the tagged elements into the old tree
         for n in new_tree:
             if n.tag == ETREE_TAG('a'):
                 _seen.add(n)
             tree.insert(index + count, n)
             count += 1
+
         # if we got a node to remove...
         if node is not None:
+            # first, grab the node tail so we don't lose text
+            if node.tail:
+                if index + count == 0:
+                    tree.text = (tree.text or '') + node.tail
+                else:
+                    tree[index+count-1].tail = (tree[index+count-1].tail or '') + node.tail
             tree.remove(node)
         return count
 
@@ -295,12 +320,11 @@ def linkify(text, callbacks=DEFAULT_CALLBACKS, skip_pre=False,
                     attrs = apply_callbacks(attrs, False)
 
                     if attrs is None:
-                        # <a> tag replaced by the text within it
-                        adj = replace_nodes(tree, _text, node,
-                                            current_child)
+                        # # <a> tag replaced by the text within it
+                        adj = replace_nodes(tree, _text, node, current_child)
+                        # pull back current_child by 1 to scan the new nodes
+                        # again.
                         current_child -= 1
-                        # pull back current_child by 1 to scan the
-                        # new nodes again.
                     else:
                         text = force_unicode(attrs.pop('_text'))
                         for attr_key, attr_val in attrs.items():
@@ -318,7 +342,7 @@ def linkify(text, callbacks=DEFAULT_CALLBACKS, skip_pre=False,
                 if node.tag == ETREE_TAG('pre') and skip_pre:
                     linkify_nodes(node, False)
                 elif not (node in _seen):
-                    linkify_nodes(node, True)
+                    linkify_nodes(node, parse_text)
 
             current_child += 1
 
@@ -347,6 +371,14 @@ def linkify(text, callbacks=DEFAULT_CALLBACKS, skip_pre=False,
         if url.startswith('('):
             _wrapping = strip_wrapping_parentheses(url)
             url, open_brackets, close_brackets = _wrapping
+        if url.endswith(')') and '(' not in url:
+            # This is a clumsy handling for the case where we have something
+            # like (foo http://example.com) and the ) gets picked up by the
+            # url_re but we don't want it part of the link.
+            new_url = url.rstrip(')')
+            close_brackets += len(url) - len(new_url)
+            url = new_url
+
         end = ''
         m = re.search(punct_re, url)
         if m:
